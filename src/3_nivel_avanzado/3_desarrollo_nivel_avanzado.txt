@@ -1,0 +1,462 @@
+; ============================================================
+; ============================================================
+; ============================================================
+; ####### EJERCICIO 8 #######
+; ============================================================
+;  Programa : Sumatoria de un Arreglo de Datos
+;  Archivo  : sumatoria_arreglo.asm
+;  Compilar : nasm -f elf64 sumatoria_arreglo.asm -o sumatoria_arreglo.o
+;  Enlazar  : ld sumatoria_arreglo.o -o sumatoria_arreglo
+;  Ejecutar : ./sumatoria_arreglo
+; ============================================================
+
+; ============================================================
+;  SECCION .data --- Declaracion de variables y mensajes
+; ============================================================
+section .data
+
+    ; Arreglo de 5 enteros de 16 bits (palabra = 2 bytes cada uno).
+    ; Directiva DW (Define Word) reserva 2 bytes por elemento.
+    arreglo     dw  10, 20, 30, 40, 50   ; 5 × 2 bytes = 10 bytes en total
+
+    ; Longitud del arreglo expresada como constante calculada en tiempo
+    ; de compilacion: ($-arreglo) es el tamaño en bytes; dividimos entre 2
+    ; porque cada elemento ocupa 2 bytes, obteniendo el numero de elementos.
+    tam_arreglo equ ($-arreglo)/2        ; tam_arreglo = 5
+
+    ; ---- Mensajes para la salida estandar (stdout) ----
+    msg_ini     db  "=== Sumatoria del arreglo ===", 0x0A   ; Encabezado
+    len_ini     equ $-msg_ini                               ; Longitud del mensaje
+
+    msg_suma    db  "Suma total: "                          ; Etiqueta resultado
+    len_suma    equ $-msg_suma
+
+    msg_nl      db  0x0A                                    ; Salto de linea (\n)
+
+; ============================================================
+;  SECCION .bss --- Variables NO INICIALIZADAS (se reserva espacio en RAM)
+; ============================================================
+section .bss
+
+    ; Reservamos 8 bytes para almacenar la suma total (tipo QWORD / 64 bits).
+    ; RESQ 1 -> Reserve Quad-word (8 bytes), 1 elemento.
+    total       resq  1                  ; Aqui guardaremos el resultado final
+
+    ; Buffer para convertir el numero a texto ASCII (maximo 20 digitos + '\n').
+    buf_num     resb  21                 ; 20 digitos decimales + 1 byte de '\n'
+
+; ============================================================
+;  SECCION .text --- Codigo ejecutable
+; ============================================================
+section .text
+
+global _start           ; Punto de entrada global que reconoce el enlazador (ld)
+
+; ------------------------------------------------------------
+;  _start : Punto de entrada del programa
+; ------------------------------------------------------------
+_start:
+
+    ; ── Imprimimos el encabezado ──────────────────────────────────────────────
+    mov  rax, 1           ; Syscall nº 1 = sys_write  (escribir en descriptor)
+    mov  rdi, 1           ; fd = 1 -> stdout (salida estandar)
+    mov  rsi, msg_ini     ; RSI = direccion del buffer a escribir
+    mov  rdx, len_ini     ; RDX = cantidad de bytes a escribir
+    syscall               ; Llamada al sistema operativo
+
+    ; ── Inicializamos registros clave antes del bucle ─────────────────────────
+    xor  rax, rax         ; RAX = 0  (acumulador de la suma; XOR consigo mismo es mas rapido que MOV RAX,0)
+    xor  rcx, rcx         ; RCX = 0  (contador / indice del bucle)
+    lea  rsi, [arreglo]   ; RSI ← direccion base del arreglo (Load Effective Address)
+
+    ; ── Bucle principal: recorre los 5 elementos sumandolos ───────────────────
+.bucle:
+    ; CLAVE: calculamos la direccion del elemento actual.
+    ;   Cada elemento ocupa 2 bytes (word), por eso multiplicamos RCX × 2.
+    ;   La instruccion MOVZX (Move with Zero-Extension) carga 16 bits (word)
+    ;   desde memoria y extiende a 64 bits rellenando con ceros, evitando
+    ;   basura en los bits superiores del registro.
+    movzx rbx, word [rsi + rcx*2]   ; RBX ← arreglo[rcx]  (elemento actual, cero-extendido a 64 bits)
+
+    add  rax, rbx         ; CLAVE: acumulamos el valor -> RAX = RAX + arreglo[rcx]
+
+    inc  rcx              ; Avanzamos el indice: rcx++
+
+    cmp  rcx, tam_arreglo ; ¿Ya procesamos todos los elementos? (rcx == 5?)
+    jl   .bucle           ; Si rcx < tam_arreglo -> continuar el bucle (Jump if Less)
+
+    ; Guardamos el resultado en la variable 'total' en memoria para usarlo despues
+    ; CLAVE: esta es la instruccion que almacena la suma final en la SECCION .bss
+    mov  [total], rax     ; total ← RAX (suma completa de los 5 elementos)
+
+    ; Mostramos la etiqueta "Suma total: " 
+    mov  rax, 1
+    mov  rdi, 1
+    mov  rsi, msg_suma
+    mov  rdx, len_suma
+    syscall
+
+    ; Convertimos el numero en RAX a texto ASCII para imprimirlo 
+    ; Cargamos el resultado desde memoria hacia el registro de trabajo
+    mov  rax, [total]     ; RAX ← total (la suma que guardamos antes)
+    call num_a_ascii      ; Llamamos a la subrutina de conversion
+
+    ; Imprimimos el numero ya convertido
+    mov  rax, 1
+    mov  rdi, 1
+    ; RSI y RDX quedan configurados por num_a_ascii (direccion e longitud)
+    syscall
+
+    ; Salto de linea final 
+    mov  rax, 1
+    mov  rdi, 1
+    mov  rsi, msg_nl
+    mov  rdx, 1
+    syscall
+
+    ; Terminamos el programa limpiamente 
+    mov  rax, 60          ; Syscall n° 60 = sys_exit
+    xor  rdi, rdi         ; Codigo de salida = 0 (exito)
+    syscall               ; El OS termina el proceso
+
+; ============================================================
+;  Subrutina: num_a_ascii
+;  Entrada : RAX = numero entero sin signo a convertir
+;  Salida  : RSI = direccion del primer digito en buf_num
+;            RDX = longitud de la cadena (bytes)
+;  Registros modificados: RAX, RBX, RCX, RDX, RSI, R8
+; ============================================================
+num_a_ascii:
+
+    ; Apuntamos al FINAL del buffer (escribiremos los digitos de derecha a izquierda)
+    lea  r8, [buf_num + 20] ; R8 = direccion del ultimo byte disponible
+    mov  byte [r8], 0x0A    ; Colocamos '\n' al final como terminador visual
+
+    mov  rbx, 10            ; Divisor = 10 (extraemos digito a digito en base 10)
+    xor  rcx, rcx           ; Contador de digitos generados = 0
+
+.conv_loop:
+    xor  rdx, rdx           ; Limpiamos RDX antes de la division (DIV usa RDX:RAX)
+    div  rbx                ; RAX = RAX / 10 (cociente)  |  RDX = RAX mod 10 (digito)
+
+    ; Convertimos el digito numerico (0-9) a su caracter ASCII ('0'-'9')
+    ; sumando el codigo ASCII de '0' que es 48 (0x30).
+    add  dl, '0'            ; dl = digito + 48  ->  caracter ASCII del digito
+
+    dec  r8                 ; Retrocedemos un byte en el buffer
+    mov  [r8], dl           ; Guardamos el digito ASCII en la posicion actual
+
+    inc  rcx                ; rcx++ (un digito mas generado)
+
+    test rax, rax           ; ¿El cociente llego a 0? (test = AND sin guardar resultado)
+    jnz  .conv_loop         ; Si RAX ≠ 0 -> hay mas digitos por extraer
+
+    ; Configuramos RSI y RDX para la syscall write del llamador
+    mov  rsi, r8            ; RSI = direccion del primer digito (inicio de la cadena)
+    lea  rdx, [buf_num + 21]; RDX = direccion justo despues del buffer
+    sub  rdx, r8            ; RDX = longitud = (fin del buffer) - (inicio de digitos)
+
+    ret                     ; Retornamos al punto de llamada en _start
+
+; ============================================================
+; ============================================================
+; ============================================================
+; ####### EJERCICIO 9 #######
+; ============================================================
+; PROGRAMA: Inversion de una Cadena de Texto
+; Archivo: invertir_cadena.asm
+; Descripcion: La cadena se define en .data (en la variable cadena) 
+;              con cualquier contenido y longitud hasta 255 caracteres.
+;              El programa calcula su tamanio dinamicamente buscando el byte nulo (0),
+;              luego invierte con PILA (PUSH/POP) y la imprime.
+; Compilar: nasm -f elf64 invertir_cadena.asm -o invertir_cadena.o
+; Enlazar:  ld invertir_cadena.o -o invertir_cadena
+; Ejecutar: ./invertir_cadena
+; ============================================================
+
+; ------------------------------------------------------------
+; SECCION .data — datos inicializados en memoria
+; ------------------------------------------------------------
+section .data
+
+    ; (*) UNICA LINEA QUE SE PUEDE EDITAR para cambiar la cadena.
+    ;     Puede tener cualquier longitud. siempre dejar 0 al final.
+    cadena      db 'Anona', 0         ; (*)
+
+    lbl_orig    db 'Original : '        ; Etiqueta de la cadena original
+    long_lbl_o  equ $ - lbl_orig        ; Longitud de la etiqueta
+
+    lbl_inv     db 'Invertida: '        ; Etiqueta de la cadena invertida
+    long_lbl_i  equ $ - lbl_inv         ; Longitud de la etiqueta
+
+    salto       db 0x0A                 ; Caracter de nueva linea
+
+; ------------------------------------------------------------
+; SECCION .bss --- memoria reservada (sin inicializar)
+; ------------------------------------------------------------
+section .bss
+    buffer_inv  resb 256    ; Buffer para la cadena invertida (hasta 255 caracteres)
+
+; ------------------------------------------------------------
+; SECCION .text --- codigo ejecutable
+; ------------------------------------------------------------
+section .text
+    global _start
+
+; ============================================================
+; _start --- punto de entrada del programa
+; ============================================================
+_start:
+
+    ; ----------------------------------------------------------
+    ; PASO 1: Calcular la longitud de la cadena dinamicamente
+    ;
+    ; Recorremos la cadena byte a byte hasta encontrar el 0x00
+    ; (terminador nulo). No usamos ninguna constante de longitud.
+    ; Al terminar, R12 = numero de caracteres reales.
+    ; ----------------------------------------------------------
+    mov rsi, cadena         ; RSI apunta al inicio de la cadena
+    xor r12, r12            ; R12 = 0, sera el contador de longitud
+
+.calcular_longitud:
+    cmp byte [rsi], 0       ; ¿El byte actual es el nulo terminador?
+    je  .longitud_lista     ; Si es 0, terminamos de contar
+    inc r12                 ; Si no, incrementamos la longitud
+    inc rsi                 ; Avanzamos al siguiente byte
+    jmp .calcular_longitud  ; Repetimos
+
+.longitud_lista:
+    ; RSI apunta ahora al nulo. R12 = longitud real de la cadena.
+    ; Ej: 'UES-FMO',0  →  R12 = 7
+    ; Ej: 'Hola Mundo', 0 → R12 = 10
+
+    ; ----------------------------------------------------------
+    ; PASO 2: Imprimir etiqueta + cadena original
+    ; ----------------------------------------------------------
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, lbl_orig
+    mov rdx, long_lbl_o
+    syscall
+
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, cadena         ; Imprimimos desde el inicio de la cadena
+    mov rdx, r12            ; Exactamente R12 bytes (longitud calculada)
+    syscall
+
+    mov rax, 1              ; Salto de linea tras la cadena original
+    mov rdi, 1
+    mov rsi, salto
+    mov rdx, 1
+    syscall
+
+    ; ----------------------------------------------------------
+    ; PASO 3: Apilar la cadena byte a byte (PUSH)
+    ;
+    ; Recorremos de izquierda a derecha empujando cada caracter.
+    ; La pila (LIFO) los devolvera en orden INVERSO al hacer POP.
+    ; ----------------------------------------------------------
+    mov rcx, r12            ; RCX = cantidad de caracteres a apilar
+    mov rsi, cadena         ; RSI = direccion base de la cadena
+
+.bucle_push:
+    movzx rax, byte [rsi]   ; Carga el byte actual (zero-extend a 64 bits)
+    push rax                ; Apila el caracter; RSP -= 8
+    inc rsi                 ; Avanza al siguiente caracter
+    dec rcx                 ; Decrementa el contador
+    jnz .bucle_push         ; Continua hasta apilar toda la cadena
+
+    ; ----------------------------------------------------------
+    ; PASO 4: Desapilar al buffer de salida (POP)
+    ;
+    ; Cada POP extrae el ultimo caracter apilado,
+    ; construyendo la cadena en orden inverso en buffer_inv.
+    ; ----------------------------------------------------------
+    mov rcx, r12            ; RCX = cantidad de caracteres a desapilar
+    mov rdi, buffer_inv     ; RDI = direccion del buffer de salida
+
+.bucle_pop:
+    pop rax                 ; Extrae de la cima; RSP += 8
+    mov [rdi], al           ; *Escribe el byte bajo (AL) en el buffer
+    inc rdi                 ; Avanza en el buffer
+    dec rcx
+    jnz .bucle_pop
+
+    ; ----------------------------------------------------------
+    ; PASO 5: Imprimir etiqueta + cadena invertida
+    ; ----------------------------------------------------------
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, lbl_inv
+    mov rdx, long_lbl_i
+    syscall
+
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, buffer_inv
+    mov rdx, r12            ; Misma longitud, ahora en orden inverso
+    syscall
+
+    mov rax, 1              ; Salto de linea final
+    mov rdi, 1
+    mov rsi, salto
+    mov rdx, 1
+    syscall
+
+    ; ----------------------------------------------------------
+    ; PASO 6: Salir limpiamente
+    ; ----------------------------------------------------------
+    mov rax, 60
+    xor rdi, rdi
+    syscall
+
+; ============================================================
+; ============================================================
+; ============================================================
+; ####### EJERCICIO 10 #######
+; ============================================================
+; Programa: Calculadora de Factorial (Estructura de Funcion) 
+; Descripción: Calcula el factorial de un numero (1-5) usando
+;              una subrutina llamada calcular_factorial.
+;              El numero se define como variable fija en .data
+; Compilar:  nasm -f elf64 calculadora_factorial.asm -o calculadora_factorial.o
+; Enlazar:   ld calculadora_factorial.o -o calculadora_factorial
+; Ejecutar:  ./calculadora_factorial
+; ============================================================
+
+; ──────────────────────────────────────────────────────────
+; SECCION .data  ---  datos inicializados
+; ──────────────────────────────────────────────────────────
+section .data
+    ;  VARIABLE FIJA: cambia este valor entre 1 y 5
+    numero          db  4               ; numero del que se calculara el factorial
+
+    ; Etiqueta de entrada: "Factorial de X = "
+    msg_de          db  "Factorial de "     ; primera parte del mensaje
+    len_de          equ $ - msg_de
+    msg_signo_igual db  " = "              ; separador entre el numero y el resultado
+    len_signo_igual equ $ - msg_signo_igual
+
+; ──────────────────────────────────────────────────────────
+; SECCION .bss  ---  datos NO inicializados (reserva de espacio)
+; ──────────────────────────────────────────────────────────
+section .bss
+    ; Buffer para convertir cualquier entero a texto ASCII
+    buffer  resb    20
+
+; ──────────────────────────────────────────────────────────
+; SECCION .text  ---  código ejecutable
+; ──────────────────────────────────────────────────────────
+section .text
+    global _start           ; punto de entrada visible para el enlazador
+
+; ============================================================
+; SUBRUTINA: calcular_factorial
+; ─────────────────────────────
+; Entrada  : RBX = numero entero n  (1 ≤ n ≤ 5)
+; Salida   : RAX = n!
+; Registros modificados: RAX, RCX
+; ============================================================
+calcular_factorial:
+    ; ── Caso base: si n ≤ 1,  factorial = 1 ──────────────────
+    cmp rbx, 1              ; compara n con 1
+    jle .base               ;  si n ≤ 1, salta al caso base
+
+    ; ── Caso general: bucle iterativo  n * (n-1) * … * 1 ────
+    mov rax, 1              ; acumulador del producto (comienza en 1)
+    mov rcx, rbx            ; RCX = contador del bucle (desde n hasta 1)
+
+.bucle:
+    imul rax, rcx           ;  RAX = RAX × RCX  (multiplicación con signo)
+    dec rcx                 ; decrementa el contador: RCX--
+    cmp rcx, 1              ; ¿el contador es mayor que 1?
+    jg  .bucle              ; si RCX > 1, repite el bucle
+
+    ret                     ;  retorna --- RAX contiene n!
+
+.base:
+    mov rax, 1              ; 0! = 1  y  1! = 1
+    ret                     ; retorna --- RAX = 1
+
+; ============================================================
+; SUBRUTINA: imprimir_entero
+; ──────────────────────────
+; Entrada  : RAX = numero entero a imprimir (sin salto de linea)
+; Salida   : ninguna
+; Registros modificados: RAX, RCX, RDX, RSI, RDI (syscall)
+; ============================================================
+imprimir_entero:
+    ; Apuntamos al final del buffer y llenamos de derecha a izquierda
+    lea rsi, [buffer + 19]  ; RSI apunta al ultimo byte del buffer
+    mov rcx, 10             ; divisor = 10 (base decimal)
+
+.conv:
+    xor rdx, rdx            ;  limpiar RDX antes de DIV (obligatorio en x86-64)
+    div rcx                 ; RAX = cociente,  RDX = resto (digito actual)
+    add dl, '0'             ;  digito numerico --- caracter ASCII
+    mov [rsi], dl           ; almacena el caracter en el buffer
+    dec rsi                 ; retrocede una posición en el buffer
+    test rax, rax           ; ¿quedan mas digitos? (¿cociente = 0?)
+    jnz .conv               ; si RAX ≠ 0, extrae el siguiente digito
+
+    inc rsi                 ;  ajuste: RSI apunta al primer digito valido
+
+    ; Calcular longitud y escribir con sys_write
+    lea rdx, [buffer + 20]  ; RDX = dirección posterior al buffer
+    sub rdx, rsi            ;  RDX = longitud real de la cadena numerica
+    mov rdi, 1              ; descriptor 1 --- stdout
+    mov rax, 1              ; syscall sys_write
+    syscall                 ; imprime el numero en pantalla
+
+    ret                     ; retorna al llamador
+
+; ============================================================
+; PUNTO DE ENTRADA PRINCIPAL: _start
+; ============================================================
+_start:
+    ; ── 1. Cargar la variable fija desde .data en RBX ────────
+    movzx rbx, byte [numero]    ;  lee 'numero' y lo extiende a 64 bits sin signo
+                                ;   evita basura en los bits superiores de RBX
+
+    ; ── 2. Llamar a la subrutina de factorial ─────────────────
+    call calcular_factorial     ; resultado en RAX = n!
+
+    ; ── 3. Preservar el resultado en R12 ──────────────────────
+    ;    R12 es callee-saved: las syscalls no lo modifican
+    mov r12, rax                ; R12 = factorial calculado
+
+    ; ── 4. Imprimir "Factorial de " ───────────────────────────
+    mov rdx, len_de             ; RDX = longitud de "Factorial de "
+    mov rsi, msg_de             ; RSI = dirección de la cadena
+    mov rdi, 1                  ; stdout
+    mov rax, 1                  ; sys_write
+    syscall                     ; imprime la primera parte del mensaje
+
+    ; ── 5. Imprimir el numero de entrada (n) ──────────────────
+    movzx rax, byte [numero]    ;  carga nuevamente 'numero' en RAX para imprimirlo
+    call imprimir_entero        ; imprime el digito (ej: "5")
+
+    ; ── 6. Imprimir " = " ─────────────────────────────────────
+    mov rdx, len_signo_igual    ; RDX = longitud de " = "
+    mov rsi, msg_signo_igual    ; RSI = dirección de la cadena
+    mov rdi, 1                  ; stdout
+    mov rax, 1                  ; sys_write
+    syscall                     ; imprime el separador
+
+    ; ── 7. Imprimir el resultado del factorial ─────────────────
+    mov rax, r12                ; RAX = factorial preservado en R12
+    call imprimir_entero        ; imprime el resultado (ej: "120")
+
+    ; ── 8. Imprimir salto de linea final ──────────────────────
+    lea rsi, [buffer + 19]      ; reutilizamos el buffer
+    mov byte [rsi], 10          ; '\n' en ASCII
+    mov rdx, 1                  ; longitud = 1 byte
+    mov rdi, 1                  ; stdout
+    mov rax, 1                  ; sys_write
+    syscall                     ; imprime el salto de linea
+
+    ; ── 9. Finalizar el proceso con código de salida 0 ────────
+    mov rax, 60                 ; RAX = 60 --- syscall sys_exit
+    xor rdi, rdi                ; RDI = 0  --- código de salida (exito)
+    syscall                     ;  termina el programa
