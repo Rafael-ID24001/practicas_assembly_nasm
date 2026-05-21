@@ -1,0 +1,244 @@
+
+
+### EJERCICIO 4 ###
+Determinacion de Par o Impar
+
+
+section .data
+    ; Numero que vamos a revisar
+    numero db 8
+
+    mensajePar db "El numero es Par",10
+    lenPar equ $ - mensajePar
+
+    mensajeImpar db "El numero es Impar",10
+    lenImpar equ $ - mensajeImpar
+
+section .text
+    global _start
+
+_start:
+
+    ; Pasamos el numero a AL
+    mov al, [numero]
+
+    ; Limpiamos AH antes de dividir
+    xor ah, ah
+
+    ; Dividimos entre 2
+    mov bl, 2
+    div bl
+
+    ; Si el residuo es 0 entonces es par
+    cmp ah, 0
+    je esPar
+
+esImpar:
+    mov eax, 4
+    mov ebx, 1
+    mov ecx, mensajeImpar
+    mov edx, lenImpar
+    int 0x80
+    jmp salir
+
+esPar:
+    mov eax, 4
+    mov ebx, 1
+    mov ecx, mensajePar
+    mov edx, lenPar
+    int 0x80
+
+salir:
+    mov eax, 1
+    mov ebx, 0
+    int 0x80
+
+
+
+### EJERCICIO 5 ###
+Mayor de Tres Numeros
+
+
+section .data
+    num1 db 12
+    num2 db 25
+    num3 db 18
+
+    msg1 db "El numero mayor es: 12",10
+    len1 equ $ - msg1
+
+    msg2 db "El numero mayor es: 25",10
+    len2 equ $ - msg2
+
+    msg3 db "El numero mayor es: 18",10
+    len3 equ $ - msg3
+
+section .text
+    global _start
+
+_start:
+
+    ; Revisamos si num1 es el mayor
+    mov al, [num1]
+    cmp al, [num2]
+    jl revisarNum2
+
+    cmp al, [num3]
+    jl mostrarNum3
+
+    ; Mostrar num1
+    mov eax, 4
+    mov ebx, 1
+    mov ecx, msg1
+    mov edx, len1
+    int 0x80
+    jmp salir
+
+revisarNum2:
+    mov al, [num2]
+    cmp al, [num3]
+    jl mostrarNum3
+
+    ; Mostrar num2
+    mov eax, 4
+    mov ebx, 1
+    mov ecx, msg2
+    mov edx, len2
+    int 0x80
+    jmp salir
+
+mostrarNum3:
+    ; Mostrar num3
+    mov eax, 4
+    mov ebx, 1
+    mov ecx, msg3
+    mov edx, len3
+    int 0x80
+
+salir:
+    mov eax, 1
+    mov ebx, 0
+    int 0x80
+
+
+
+### EJERCICIO 6 ###
+Contador Regresivo
+
+
+section .data
+    salto db 10
+
+section .bss
+    numero resb 1
+
+section .text
+    global _start
+
+_start:
+
+    ; Empezamos desde 9
+    mov ecx, 9
+
+ciclo:
+
+    ; Convertimos el numero a ASCII
+    mov al, cl
+    add al, '0'
+
+    ; Guardamos el caracter
+    mov [numero], al
+
+    ; Mostrar numero
+    mov eax, 4
+    mov ebx, 1
+    mov ecx, numero
+    mov edx, 1
+    int 0x80
+
+    ; Mostrar salto de linea
+    mov eax, 4
+    mov ebx, 1
+    mov ecx, salto
+    mov edx, 1
+    int 0x80
+
+    ; Recuperamos el contador
+    movzx ecx, byte [numero]
+    sub ecx, '0'
+
+    ; Restamos 1
+    dec ecx
+
+    ; Repetimos mientras sea mayor o igual a 0
+    cmp ecx, 0
+    jge ciclo
+
+salir:
+    ; Finalizar programa
+    mov eax, 1
+    mov ebx, 0
+    int 0x80
+
+
+### EJERCICIO 7 ###
+Multiplicacion mediante Sumas Sucesivas
+
+
+section .data
+    multiplicando db 3
+    multiplicador db 3
+
+    mensaje db "Resultado de la multiplicacion: ",10
+    lenMensaje equ $ - mensaje
+
+section .bss
+    resultado resb 1
+
+section .text
+    global _start
+
+_start:
+
+    ; Resultado inicia en 0
+    mov al, 0
+
+    ; Guardamos los numeros
+    mov bl, [multiplicando]
+    mov cl, [multiplicador]
+
+sumar:
+
+    ; Sumamos varias veces
+    add al, bl
+
+    ; Restamos 1 al contador
+    dec cl
+
+    ; Seguimos mientras CL no sea 0
+    jnz sumar
+
+    ; Guardamos el resultado
+    mov [resultado], al
+
+    ; Mostrar mensaje
+    mov eax, 4
+    mov ebx, 1
+    mov ecx, mensaje
+    mov edx, lenMensaje
+    int 0x80
+
+    ; Convertimos el resultado a ASCII
+    add byte [resultado], '0'
+
+    ; Mostrar resultado
+    mov eax, 4
+    mov ebx, 1
+    mov ecx, resultado
+    mov edx, 1
+    int 0x80
+
+salir:
+    mov eax, 1
+    mov ebx, 0
+    int 0x80
