@@ -1,0 +1,158 @@
+; ============================================================
+; ####### EJERCICIO 8 #######
+; ============================================================
+;  Programa : Sumatoria de un Arreglo de Datos
+;  Archivo  : sumatoria_arreglo.asm
+;  Compilar : nasm -f elf64 sumatoria_arreglo.asm -o sumatoria_arreglo.o
+;  Enlazar  : ld sumatoria_arreglo.o -o sumatoria_arreglo
+;  Ejecutar : ./sumatoria_arreglo
+; ============================================================
+
+; ============================================================
+;  SECCION .data --- Declaracion de variables y mensajes
+; ============================================================
+section .data
+
+    ; Arreglo de 5 enteros de 16 bits (palabra = 2 bytes cada uno).
+    ; Directiva DW (Define Word) reserva 2 bytes por elemento.
+    arreglo     dw  10, 20, 30, 40, 50   ; 5 × 2 bytes = 10 bytes en total
+
+    ; Longitud del arreglo expresada como constante calculada en tiempo
+    ; de compilacion: ($-arreglo) es el tamaño en bytes; dividimos entre 2
+    ; porque cada elemento ocupa 2 bytes, obteniendo el numero de elementos.
+    tam_arreglo equ ($-arreglo)/2        ; tam_arreglo = 5
+
+    ; ---- Mensajes para la salida estandar (stdout) ----
+    msg_ini     db  "=== Sumatoria del arreglo ===", 0x0A   ; Encabezado
+    len_ini     equ $-msg_ini                               ; Longitud del mensaje
+
+    msg_suma    db  "Suma total: "                          ; Etiqueta resultado
+    len_suma    equ $-msg_suma
+
+    msg_nl      db  0x0A                                    ; Salto de linea (\n)
+
+; ============================================================
+;  SECCION .bss --- Variables NO INICIALIZADAS (se reserva espacio en RAM)
+; ============================================================
+section .bss
+
+    ; Reservamos 8 bytes para almacenar la suma total (tipo QWORD / 64 bits).
+    ; RESQ 1 -> Reserve Quad-word (8 bytes), 1 elemento.
+    total       resq  1                  ; Aqui guardaremos el resultado final
+
+    ; Buffer para convertir el numero a texto ASCII (maximo 20 digitos + '\n').
+    buf_num     resb  21                 ; 20 digitos decimales + 1 byte de '\n'
+
+; ============================================================
+;  SECCION .text --- Codigo ejecutable
+; ============================================================
+section .text
+
+global _start           ; Punto de entrada global que reconoce el enlazador (ld)
+
+; ------------------------------------------------------------
+;  _start : Punto de entrada del programa
+; ------------------------------------------------------------
+_start:
+
+    ; ── Imprimimos el encabezado ──────────────────────────────────────────────
+    mov  rax, 1           ; Syscall nº 1 = sys_write  (escribir en descriptor)
+    mov  rdi, 1           ; fd = 1 -> stdout (salida estandar)
+    mov  rsi, msg_ini     ; RSI = direccion del buffer a escribir
+    mov  rdx, len_ini     ; RDX = cantidad de bytes a escribir
+    syscall               ; Llamada al sistema operativo
+
+    ; ── Inicializamos registros clave antes del bucle ─────────────────────────
+    xor  rax, rax         ; RAX = 0  (acumulador de la suma; XOR consigo mismo es mas rapido que MOV RAX,0)
+    xor  rcx, rcx         ; RCX = 0  (contador / indice del bucle)
+    lea  rsi, [arreglo]   ; RSI ← direccion base del arreglo (Load Effective Address)
+
+    ; ── Bucle principal: recorre los 5 elementos sumandolos ───────────────────
+.bucle:
+    ; CLAVE: calculamos la direccion del elemento actual.
+    ;   Cada elemento ocupa 2 bytes (word), por eso multiplicamos RCX × 2.
+    ;   La instruccion MOVZX (Move with Zero-Extension) carga 16 bits (word)
+    ;   desde memoria y extiende a 64 bits rellenando con ceros, evitando
+    ;   basura en los bits superiores del registro.
+    movzx rbx, word [rsi + rcx*2]   ; RBX ← arreglo[rcx]  (elemento actual, cero-extendido a 64 bits)
+
+    add  rax, rbx         ; CLAVE: acumulamos el valor -> RAX = RAX + arreglo[rcx]
+
+    inc  rcx              ; Avanzamos el indice: rcx++
+
+    cmp  rcx, tam_arreglo ; ¿Ya procesamos todos los elementos? (rcx == 5?)
+    jl   .bucle           ; Si rcx < tam_arreglo -> continuar el bucle (Jump if Less)
+
+    ; Guardamos el resultado en la variable 'total' en memoria para usarlo despues
+    ; CLAVE: esta es la instruccion que almacena la suma final en la SECCION .bss
+    mov  [total], rax     ; total ← RAX (suma completa de los 5 elementos)
+
+    ; Mostramos la etiqueta "Suma total: " 
+    mov  rax, 1
+    mov  rdi, 1
+    mov  rsi, msg_suma
+    mov  rdx, len_suma
+    syscall
+
+    ; Convertimos el numero en RAX a texto ASCII para imprimirlo 
+    ; Cargamos el resultado desde memoria hacia el registro de trabajo
+    mov  rax, [total]     ; RAX ← total (la suma que guardamos antes)
+    call num_a_ascii      ; Llamamos a la subrutina de conversion
+
+    ; Imprimimos el numero ya convertido
+    mov  rax, 1
+    mov  rdi, 1
+    ; RSI y RDX quedan configurados por num_a_ascii (direccion e longitud)
+    syscall
+
+    ; Salto de linea final 
+    mov  rax, 1
+    mov  rdi, 1
+    mov  rsi, msg_nl
+    mov  rdx, 1
+    syscall
+
+    ; Terminamos el programa limpiamente 
+    mov  rax, 60          ; Syscall n° 60 = sys_exit
+    xor  rdi, rdi         ; Codigo de salida = 0 (exito)
+    syscall               ; El OS termina el proceso
+
+; ============================================================
+;  Subrutina: num_a_ascii
+;  Entrada : RAX = numero entero sin signo a convertir
+;  Salida  : RSI = direccion del primer digito en buf_num
+;            RDX = longitud de la cadena (bytes)
+;  Registros modificados: RAX, RBX, RCX, RDX, RSI, R8
+; ============================================================
+num_a_ascii:
+
+    ; Apuntamos al FINAL del buffer (escribiremos los digitos de derecha a izquierda)
+    lea  r8, [buf_num + 20] ; R8 = direccion del ultimo byte disponible
+    mov  byte [r8], 0x0A    ; Colocamos '\n' al final como terminador visual
+
+    mov  rbx, 10            ; Divisor = 10 (extraemos digito a digito en base 10)
+    xor  rcx, rcx           ; Contador de digitos generados = 0
+
+.conv_loop:
+    xor  rdx, rdx           ; Limpiamos RDX antes de la division (DIV usa RDX:RAX)
+    div  rbx                ; RAX = RAX / 10 (cociente)  |  RDX = RAX mod 10 (digito)
+
+    ; Convertimos el digito numerico (0-9) a su caracter ASCII ('0'-'9')
+    ; sumando el codigo ASCII de '0' que es 48 (0x30).
+    add  dl, '0'            ; dl = digito + 48  ->  caracter ASCII del digito
+
+    dec  r8                 ; Retrocedemos un byte en el buffer
+    mov  [r8], dl           ; Guardamos el digito ASCII en la posicion actual
+
+    inc  rcx                ; rcx++ (un digito mas generado)
+
+    test rax, rax           ; ¿El cociente llego a 0? (test = AND sin guardar resultado)
+    jnz  .conv_loop         ; Si RAX ≠ 0 -> hay mas digitos por extraer
+
+    ; Configuramos RSI y RDX para la syscall write del llamador
+    mov  rsi, r8            ; RSI = direccion del primer digito (inicio de la cadena)
+    lea  rdx, [buf_num + 21]; RDX = direccion justo despues del buffer
+    sub  rdx, r8            ; RDX = longitud = (fin del buffer) - (inicio de digitos)
+
+    ret                     ; Retornamos al punto de llamada en _start
+
