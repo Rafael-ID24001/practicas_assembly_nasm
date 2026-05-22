@@ -1,0 +1,92 @@
+### EJERCICIO 1 ###
+; =============================================================================
+; Ejercicio 1: Suma y Resta de Variables
+; Descripción: Calcula la operación Resultado = A + B - C utilizando variables
+;              de un byte y almacena el valor final en memoria (.bss).
+; =============================================================================
+
+section .data
+    A db 15          ; Definición de variable A (1 byte) con valor 15
+    B db 7           ; Definición de variable B (1 byte) con valor 7
+    C db 3           ; Definición de variable C (1 byte) con valor 3
+
+section .bss
+    Resultado resb 1 ; Reserva de 1 byte en memoria para almacenar el resultado final
+
+section .text
+    global _start
+
+_start:
+    mov al, [A]      ; Carga el valor de A (15) en el registro de 8 bits AL
+    add al, [B]      ; Suma el valor de B (7) al registro AL (AL = 15 + 7 = 22)
+    sub al, [C]      ; Resta el valor de C (3) al registro AL (AL = 22 - 3 = 19)
+    
+    mov [Resultado], al ; Almacena el valor final de AL en la variable Resultado en .bss
+
+    ; Salida segura del programa (sys_exit)
+    mov rax, 60      ; Código de la llamada al sistema para sys_exit
+    mov rdi, 0       ; Código de retorno 0 (sin errores)
+    syscall          ; Invoca al kernel de Linux
+
+
+### EJERCICIO 2 ###
+; =============================================================================
+; Ejercicio 2: Multiplicación y División Básica
+; Descripción: Multiplica dos números de 8 bits y divide el resultado entre 2.
+;              Maneja correctamente los registros implicados en la división.
+; =============================================================================
+
+section .data
+    num1 db 12       ; Primer número entero de 8 bits
+    num2 db 5        ; Segundo número entero de 8 bits
+
+section .bss
+    res_final resw 1 ; Reserva de 1 word (16 bits) para el resultado por seguridad
+
+section .text
+    global _start
+
+_start:
+    mov al, [num1]   ; Mueve el primer número al registro AL (requerido para MUL)
+    mul byte [num2]  ; Multiplica AL * num2. El resultado de 16 bits se guarda en AX (AX = 12 * 5 = 60)
+
+    ; Preparación para la división (Dividendo en AX, divisor en registro de 8 bits)
+    mov bl, 2        ; Coloca el divisor (2) en el registro BL
+    div bl           ; Divide AX entre BL. Cociente se guarda en AL, residuo en AH
+                     ; AL = 60 / 2 = 30. AH = 0
+
+    movzx bx, al     ; Extiende el cociente de AL a BX para limpiar basura
+    mov [res_final], bx ; Guarda el resultado final en la memoria
+
+    ; Salida segura del programa (sys_exit)
+    mov rax, 60      
+    mov rdi, 0       
+    syscall          
+
+
+### EJERCICIO 3 ###
+; =============================================================================
+; Ejercicio 3: Intercambio de Valores (Sin usar memoria auxiliar)
+; Descripción: Intercambia los valores de dos variables X e Y utilizando
+;              únicamente los registros del procesador.
+; =============================================================================
+
+section .data
+    X db 42          ; Variable X inicializada con 42
+    Y db 99          ; Variable Y inicializada con 99
+
+section .text
+    global _start
+
+_start:
+    mov al, [X]      ; Carga el valor de X (42) en el registro AL
+    mov bl, [Y]      ; Carga el valor de Y (99) en el registro BL
+
+    ; Intercambio nativo usando registros del procesador
+    mov [X], bl      ; Mueve el valor que estaba en BL (99) a la dirección de X
+    mov [Y], al      ; Mueve el valor que estaba en AL (42) a la dirección de Y
+
+    ; Salida segura del programa (sys_exit)
+    mov rax, 60      
+    mov rdi, 0       
+    syscall
